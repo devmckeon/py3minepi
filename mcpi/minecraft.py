@@ -1,6 +1,6 @@
 from .connection import Connection
 from .vec3 import Vec3
-from .event import BlockEvent
+from .event import BlockEvent, ChatEvent
 from .block import Block
 import math
 from .util import flatten
@@ -17,6 +17,13 @@ from .util import flatten
 
     @author: Aron Nieminen, Mojang AB"""
 
+""" Updated to include functionality provided by RaspberryJuice:
+- getBlocks()
+- getDirection()
+- getPitch()
+- getRotation()
+- getPlayerEntityId()
+- pollChatPosts() """
 
 def intFloor(*args):
     return [int(math.floor(x)) for x in flatten(args)]
@@ -45,6 +52,19 @@ class CmdPositioner:
         """Set entity tile position (entityId:int) => Vec3"""
         self.conn.send(self.pkg + b".setTile", id, intFloor(*args))
 
+    def getDirection(self, id):
+        """Get entity direction (entityId:int) => Vec3"""
+        s = self.conn.sendReceive(self.pkg + b".getDirection", id)
+        return Vec3(*map(float, s.split(",")))
+
+    def getRotation(self, id):
+        """get entity rotation (entityId:int) => float"""
+        return float(self.conn.sendReceive(self.pkg + b".getRotation", id))
+
+    def getPitch(self, id):
+        """get entity pitch (entityId:int) => float"""
+        return float(self.conn.sendReceive(self.pkg + b".getPitch", id))
+
     def setting(self, setting, status):
         """Set a player setting (setting, status). keys: autojump"""
         self.conn.send(self.pkg + b".setting", setting, 1 if bool(status) else 0)
@@ -70,6 +90,12 @@ class CmdPlayer(CmdPositioner):
         return CmdPositioner.getTilePos(self, [])
     def setTilePos(self, *args):
         return CmdPositioner.setTilePos(self, [], args)
+    def getDirection(self):
+        return CmdPositioner.getDirection(self, [])
+    def getRotation(self):
+        return CmdPositioner.getRotation(self, [])
+    def getPitch(self):
+        return CmdPositioner.getPitch(self, [])
 
 class CmdCamera:
     def __init__(self, connection):
@@ -107,6 +133,11 @@ class CmdEvents:
         events = [e for e in s.split("|") if e]
         return [BlockEvent.Hit(*list(map(int, e.split(",")))) for e in events]
 
+    def pollChatPosts(self):
+        """Triggered by posts to chat => [ChatEvent]"""
+        s = self.conn.sendReceive(b"events.chat.posts")
+        events = [e for e in s.split("|") if e]
+        return [ChatEvent.Post(int(e[:e.find(",")]), e[e.find(",") + 1:]) for e in events]
 
 class Minecraft:
     """The main class to interact with a running instance of Minecraft Pi."""
@@ -126,12 +157,11 @@ class Minecraft:
         """Get block with data (x,y,z) => Block"""
         ans = self.conn.sendReceive(b"world.getBlockWithData", intFloor(args))
         return Block(*list(map(int, ans.split(","))))
-    """
-        @TODO
-    """
+
     def getBlocks(self, *args):
         """Get a cuboid of blocks (x0,y0,z0,x1,y1,z1) => [id:int]"""
-        return int(self.conn.sendReceive(b"world.getBlocks", intFloor(args)))
+        s = self.conn.sendReceive(b"world.getBlocks", intFloor(args))
+        return map(int, s.split(","))
 
     def setBlock(self, *args):
         """Set block (x,y,z,id,[data])"""
@@ -149,6 +179,10 @@ class Minecraft:
         """Get the entity ids of the connected players => [id:int]"""
         ids = self.conn.sendReceive(b"world.getPlayerIds")
         return list(map(int, ids.split("|")))
+
+    def getPlayerEntityId(self, name):
+        """Get the entity id of the named player => [id:int]"""
+        return int(self.conn.sendReceive(b"world.getPlayerId", name))
 
     def saveCheckpoint(self):
         """Save a checkpoint that can be used for restoring the world"""
